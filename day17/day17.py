@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Set, Tuple
 
 
@@ -116,8 +117,19 @@ def potential_living_cells(old_universe):
 
 
 def generate_neighbouring_locations(location: Tuple[int]):
+    return {
+        tuple(
+            loc + delta[i]
+            for i, loc in enumerate(location)
+        )
+        for delta in (generate_deltas(len(location)))
+    }
+
+
+@lru_cache()
+def generate_deltas(total_dim):
     deltas = {(-1,), (0,), (1,)}
-    for dim in range(1, len(location)):
+    for dim in range(1, total_dim):
         deltas = {
             high_dim_delta
             for low_dim_delta in deltas
@@ -127,11 +139,5 @@ def generate_neighbouring_locations(location: Tuple[int]):
                 (*low_dim_delta, 1),
             }
         }
-
-    return {
-        tuple(
-            loc + delta[i]
-            for i, loc in enumerate(location)
-        )
-        for delta in deltas
-    }.difference({location})
+    deltas.remove((0,) * total_dim)
+    return deltas
