@@ -1,10 +1,7 @@
 import math
 import re
-from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
-from itertools import permutations
-from pprint import pprint
 from typing import Tuple, Dict, List, Iterable, Set, Optional
 
 
@@ -33,16 +30,15 @@ def test_silver_example():
     assert (Orientation(True), Orientation(True)) in tiles[1951].find_orientations_for_match_above_of(tiles[2729])
 
     flipped_1951 = tiles[1951].re_orient(Orientation(True))
-    assert OrientedTile(tiles[2311], Orientation(True)) in flipped_1951.tiles_that_match_right(tiles)
-    assert OrientedTile(tiles[2729], Orientation(True)) in flipped_1951.tiles_that_match_bellow(tiles)
-
-    # assert is_solution((
-    #     ((1951, Orientation(True)), (2311, Orientation(True)), (3079, Orientation()),),
-    #     ((2729, Orientation(True)), (1427, Orientation(True)), (2473, Orientation(True, 3)),),
-    #     ((2971, Orientation(True)), (1489, Orientation(True)), (1171, Orientation(True, 2)),),
-    # ))
+    assert tiles[2311].re_orient(Orientation(True)) in flipped_1951.tiles_that_match_right(tiles)
+    assert tiles[2729].re_orient(Orientation(True)) in flipped_1951.tiles_that_match_bellow(tiles)
 
     assert 20899048083289 == solve(tiles)
+
+
+def test_silver():
+    tiles = load("input.txt")
+    assert 32287787075651 == solve(tiles)
 
 
 @dataclass(frozen=True)
@@ -92,6 +88,7 @@ class Tile:
     def flip_horizontally(self) -> "Tile":
         return Tile(self.number, self.pattern[::-1])
 
+    @lru_cache
     def rotate_right(self) -> "Tile":
         return Tile(
             self.number,
@@ -136,6 +133,7 @@ class Tile:
             if self.re_orient(orientation_top_tile).matches_above_of(bottom_tile.re_orient(orientation_bottom_tile))
         ]
 
+    @lru_cache
     def re_orient(self, orientation: Orientation) -> "Tile":
         re_oriented_tile = self
         if orientation.flip:
@@ -144,57 +142,51 @@ class Tile:
             re_oriented_tile = re_oriented_tile.rotate_right()
         return re_oriented_tile
 
-    def tiles_that_match_right(self, tiles: Dict[int, "Tile"]) -> Set["OrientedTile"]:
+    def tiles_that_match_right(self, tiles: Dict[int, "Tile"]) -> Set["Tile"]:
         return {
-            OrientedTile(tile, orientation)
+            tile.re_orient(orientation)
             for tile_number, tile in tiles.items()
             for orientation in ALL_ORIENTATIONS
             if self.matches_left_of(tile.re_orient(orientation))
         }
 
-    def tiles_that_match_bellow(self, tiles: Dict[int, "Tile"]) -> Set["OrientedTile"]:
+    def tiles_that_match_bellow(self, tiles: Dict[int, "Tile"]) -> Set["Tile"]:
         return {
-            OrientedTile(tile, orientation)
+            tile.re_orient(orientation)
             for tile_number, tile in tiles.items()
             for orientation in ALL_ORIENTATIONS
             if self.matches_above_of(tile.re_orient(orientation))
         }
 
 
-@dataclass(frozen=True)
-class OrientedTile:
-    tile: Tile
-    orientation: Orientation
-
-
 class Solution:
     tiles: Dict[int, Tile]
-    solution: List[List[Optional[OrientedTile]]]
+    solution: List[List[Optional[Tile]]]
 
-    def __init__(self, tiles: Dict[int, Tile], solution: List[List[Optional[OrientedTile]]]):
+    def __init__(self, tiles: Dict[int, Tile], solution: List[List[Optional[Tile]]]):
         self.tiles = tiles
         self.solution = solution
 
     def __repr__(self):
         return f"\nSolution: {self.next_slot()=}\n" + "\n".join(
             "\t".join(
-                str(cell.tile.number) if cell else "None"
+                str(cell.number) if cell else "None"
                 for cell in line
             )
             for line in self.solution
         )
 
     @staticmethod
-    def seed_solution(oriented_tile: OrientedTile, tiles: Dict[int, Tile]) -> "Solution":
+    def seed_solution(tile: Tile, tiles: Dict[int, Tile]) -> "Solution":
         size = int(math.sqrt(len(tiles)))
-        empty_solution: List[List[Optional[OrientedTile]]] = [
+        empty_solution: List[List[Optional[Tile]]] = [
             [
                 None
                 for _ in range(size)
             ]
             for _ in range(size)
         ]
-        empty_solution[0][0] = oriented_tile
+        empty_solution[0][0] = tile
         return Solution(tiles, empty_solution)
 
     def is_solved(self):
@@ -208,40 +200,76 @@ class Solution:
 
     def fill_next_slot(self) -> List["Solution"]:
         x, y = self.next_slot()
-        if x > 0:
-            self.solution[x][y]
 
-        valid_next_oriented_tiles = {
-            OrientedTile(self.tiles[1951], Orientation())
+        available_tiles = self.available_tiles()
+
+        valid_next_tiles = {
+            tile.re_orient(orientation)
+            for tile in available_tiles.values()
+            for orientation in ALL_ORIENTATIONS
         }
+
+        if x > 0:
+            valid_next_tiles = self.solution[y][x - 1].tiles_that_match_right(available_tiles)
+        if y > 0:
+            valid_next_tiles = self.solution[y - 1][x].tiles_that_match_bellow(available_tiles)
+        if x > 0 and y > 0:
+            tiles_that_match_right = self.solution[y][x - 1].tiles_that_match_right(available_tiles)
+            tiles_that_match_bellow = self.solution[y - 1][x].tiles_that_match_bellow(available_tiles)
+            valid_next_tiles = tiles_that_match_right.intersection(tiles_that_match_bellow)
+
         return [
-            self.fill_next_slot_with(oriented_tile)
-            for oriented_tile in valid_next_oriented_tiles
+            self.fill_next_slot_with(tile)
+            for tile in valid_next_tiles
         ]
 
-    def fill_next_slot_with(self, oriented_tile: OrientedTile) -> "Solution":
+    def fill_next_slot_with(self, tile: Tile) -> "Solution":
         solution_copy = [
             [
-                oriented_tile if (x, y) == self.next_slot() else cell
+                tile if (x, y) == self.next_slot() else cell
                 for x, cell in enumerate(line)
             ]
             for y, line in enumerate(self.solution)
         ]
         return Solution(self.tiles, solution_copy)
 
+    def available_tiles(self) -> Dict[int, Tile]:
+        return {
+            tile.number: tile
+            for tile in self.tiles.values()
+            if tile.number not in map(lambda tile: tile.number, self.placed_tiles())
+        }
+
+    def placed_tiles(self) -> Set[Tile]:
+        return {
+            cell
+            for line in self.solution
+            for cell in line
+            if cell
+        }
+
+    def check_sum(self) -> int:
+        return (
+                self.solution[0][0].number
+                *
+                self.solution[0][-1].number
+                *
+                self.solution[-1][0].number
+                *
+                self.solution[-1][-1].number
+        )
+
 
 def solve(tiles: Dict[int, Tile]) -> int:
     candidates = [
-        Solution.seed_solution(OrientedTile(tile, orientation), tiles)
+        Solution.seed_solution(tile.re_orient(orientation), tiles)
         for tile in tiles.values()
         for orientation in ALL_ORIENTATIONS
-
     ]
     while not candidates[-1].is_solved():
         candidate = candidates.pop()
-        print(candidate)
         candidates.extend(candidate.fill_next_slot())
-    return len(candidates)
+    return candidates[-1].check_sum()
 
 
 def load(file_name: str) -> Dict[int, Tile]:
