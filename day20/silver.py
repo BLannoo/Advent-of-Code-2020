@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Tuple, Dict, List, Iterable, Set, Optional
 
+TILE_SIZE = 10
+
 
 def test_silver_example():
     tiles = load("example.txt")
@@ -33,18 +35,38 @@ def test_silver_example():
     assert tiles[2311].re_orient(Orientation(True)) in flipped_1951.tiles_that_match_right(tiles)
     assert tiles[2729].re_orient(Orientation(True)) in flipped_1951.tiles_that_match_bellow(tiles)
 
-    assert 20899048083289 == solve(tiles)
+    solution = solve(tiles)
+    print(solution)
+    solution.save_picture("example_picture.txt")
+    assert 20899048083289 == solution.check_sum()
 
 
 def test_silver():
     tiles = load("input.txt")
-    assert 32287787075651 == solve(tiles)
+    solution = solve(tiles)
+    solution.save_picture("input_picture.txt")
+    assert 32287787075651 == solution.check_sum()
 
 
 @dataclass(frozen=True)
 class Orientation:
     flip: bool = False
     right_rotations: int = 0
+
+    def __repr__(self):
+        return (
+                ("F" if self.flip else ".")
+                +
+                "R" * self.right_rotations
+                +
+                "." * (3 - self.right_rotations)
+        )
+
+    def fliped(self):
+        return Orientation(not self.flip, self.right_rotations)
+
+    def rotate_right(self):
+        return Orientation(self.flip, self.right_rotations + 1)
 
 
 ALL_ORIENTATIONS = tuple(
@@ -58,7 +80,11 @@ ALL_ORIENTATIONS = tuple(
 class Tile:
     number: int
     pattern: Tuple[Tuple[str, ...], ...]
-    size: int = 10
+    orientation: Orientation
+    size: int = TILE_SIZE
+
+    def __repr__(self):
+        return f"{self.number}-{self.orientation}"
 
     @classmethod
     def create(cls, description: str) -> "Tile":
@@ -71,6 +97,7 @@ class Tile:
                 tuple(line)
                 for line in match.group(2).strip().split("\n")
             ),
+            Orientation(),
         )
 
     def right_border(self) -> Tuple[str]:
@@ -86,7 +113,7 @@ class Tile:
         return tuple(self.pattern[0])
 
     def flip_horizontally(self) -> "Tile":
-        return Tile(self.number, self.pattern[::-1])
+        return Tile(self.number, self.pattern[::-1], self.orientation.fliped())
 
     @lru_cache
     def rotate_right(self) -> "Tile":
@@ -98,7 +125,8 @@ class Tile:
                     for x in range(self.size)
                 )
                 for y in range(self.size)
-            )
+            ),
+            self.orientation.rotate_right(),
         )
 
     def matches_left_of(self, right_tile: "Tile") -> bool:
@@ -170,7 +198,7 @@ class Solution:
     def __repr__(self):
         return f"\nSolution: {self.next_slot()=}\n" + "\n".join(
             "\t".join(
-                str(cell.number) if cell else "None"
+                str(cell) if cell else "None"
                 for cell in line
             )
             for line in self.solution
@@ -259,8 +287,19 @@ class Solution:
                 self.solution[-1][-1].number
         )
 
+    def save_picture(self, file_name: str):
+        picture = ""
+        for y_tile, line in enumerate(self.solution):
+            for y_pixel in range(1, TILE_SIZE - 1):
+                for x_tile, cell in enumerate(line):
+                    for x_pixel in range(1, TILE_SIZE - 1):
+                        picture += self.solution[x_tile][y_tile].pattern[x_pixel][y_pixel]
+                picture += "\n"
+        with open(file_name, "w") as file:
+            file.write(picture)
 
-def solve(tiles: Dict[int, Tile]) -> int:
+
+def solve(tiles: Dict[int, Tile]) -> Solution:
     candidates = [
         Solution.seed_solution(tile.re_orient(orientation), tiles)
         for tile in tiles.values()
@@ -269,7 +308,7 @@ def solve(tiles: Dict[int, Tile]) -> int:
     while not candidates[-1].is_solved():
         candidate = candidates.pop()
         candidates.extend(candidate.fill_next_slot())
-    return candidates[-1].check_sum()
+    return candidates[-1]
 
 
 def load(file_name: str) -> Dict[int, Tile]:
