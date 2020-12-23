@@ -115,7 +115,7 @@ class Tile:
     def flip_horizontally(self) -> "Tile":
         return Tile(self.number, self.pattern[::-1], self.orientation.fliped())
 
-    @lru_cache
+    @lru_cache(144 * 8)
     def rotate_right(self) -> "Tile":
         return Tile(
             self.number,
